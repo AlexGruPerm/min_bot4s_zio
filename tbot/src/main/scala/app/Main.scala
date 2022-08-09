@@ -1,22 +1,64 @@
 package app
 
-import zio.{ExitCode, URIO, ZIO, ZIOAppDefault}
+import com.typesafe.config.ConfigFactory
+import common.{BotConfig, BotConfigHelper}
+import zio.{ExitCode, URIO, ZIO, ZIOAppArgs, ZIOAppDefault, ZLayer}
 import service.{FbBotZio, FbBotZioImpl}
+import scala.reflect.io.File
+import java.io
 
-object Main extends ZIOAppDefault{
 
-  val botEffect: ZIO[FbBotZio,Throwable,Unit] =
+/**
+ * scala compiler server - VM options
+ * -server -Xss2m
+ * -XX:+UseParallelGC
+ * -XX:MaxInlineLevel=20
+ * --add-opens java.base/jdk.internal.misc=ALL-UNNAMED
+ * -Dio.netty.tryReflectionSetAccessible=true
+ * --illegal-access=warn
+ *
+ */
+object Main extends ZIOAppDefault {
+
+  val configBot: ZIO[String, Throwable, BotConfig] =
+    for {
+      configParam <- ZIO.service[String]
+      configFilename: String = System.getProperty("user.dir") + File.separator + configParam
+      fileConfig = ConfigFactory.parseFile(new io.File(configFilename))
+      botConfig = BotConfigHelper.getConfig(fileConfig)
+    } yield botConfig
+
+  val botEffect: ZIO[BotConfig with FbBotZio, Throwable, Unit] =
     for {
       bot <- ZIO.service[FbBotZio]
-      _ <- bot.startBot.catchAll{
-        case ex: Throwable => ZIO.logError(s"Exception ${ex.getMessage} - ${ex.getCause}")
-      }
+      _ <- bot.startBot
     } yield ()
 
-  val MainApp: ZIO[Any, Throwable, Unit] = for {
-    _ <- botEffect.provide(FbBotZioImpl.layer)
+  val MainApp: ZIO[BotConfig, Throwable, Unit] = for {
+    _ <- ZIO.logInfo("Begin MainApp")
+    conf <- ZIO.service[BotConfig]
+    _ <- botEffect.provide(
+      ZLayer.succeed(conf),
+      FbBotZioImpl.layer
+    )
   } yield ()
 
-  override def run: URIO[Any,ExitCode] = MainApp.exitCode
+  def botConfigZLayer(confParam: ZIOAppArgs): ZLayer[Any, Throwable, BotConfig] =
+    ZLayer {
+      for {
+        botConfig <- confParam.getArgs.toList match {
+          case List(configFile) => configBot.provide(ZLayer.succeed(configFile))
+          case _ => ZIO.fail(new Exception("There is no config file in input parameter. "))
+        }
+        _ <- ZIO.logInfo(s"BotConfig = ${botConfig}")
+      } yield botConfig
+    }
+
+  override def run: URIO[ZIOAppArgs, ExitCode] =
+    for {
+      args <- ZIO.service[ZIOAppArgs]
+      botConfig = botConfigZLayer(args)
+      res <- MainApp.provide(botConfig).exitCode
+    } yield res
 
 }
