@@ -1,6 +1,5 @@
 package service
 
-import com.bot4s.telegram.api.{AkkaTelegramBot, Webhook}
 import com.bot4s.telegram.api.declarative.Commands
 import com.bot4s.telegram.cats.TelegramBot
 import com.bot4s.telegram.methods.SetWebhook
@@ -8,27 +7,21 @@ import com.bot4s.telegram.models.{InputFile, Message, Update}
 import com.bot4s.telegram.models.UpdateType.Filters.{InlineUpdates, MessageUpdates}
 import com.bot4s.telegram.models.UpdateType.UpdateType
 import common.BotConfig
-import io.netty.handler.ssl.{SslContextBuilder, SupportedCipherSuiteFilter}
+import io.netty.handler.ssl.{SslContextBuilder}
 import org.asynchttpclient.Dsl.asyncHttpClient
 import sttp.client3.asynchttpclient.zio.AsyncHttpClientZioBackend
-import sttp.client3.httpclient.zio.HttpClientZioBackend
 import zhttp.service.server.ServerSSLHandler.ServerSSLOptions
 import zhttp.http._
 import zhttp.service.Server
 import zhttp.service.server.ServerChannelFactory
 import zhttp.service.EventLoopGroup
 import zhttp.http.{Http, Method, Request, Response}
-import zio.{Ref, Scope, Task, ZIO, durationInt}
+import zio.{Ref, Scope, Task, ZIO}
 import zio.interop.catz._
-
 import java.io.{File, FileInputStream, IOException, InputStream}
-import java.net.http.HttpClient
 import java.security.KeyStore
 import javax.net.ssl.{KeyManagerFactory, TrustManagerFactory}
 
-
-//todo: maybe     new DefaultAsyncHttpClientConfig.sslContext
-//todo: https://asynchttpclient.github.io/async-http-client/ssl.html
 
 abstract class FbBot(val conf: BotConfig)
   extends TelegramBot[Task](conf.token, AsyncHttpClientZioBackend.usingClient(zio.Runtime.default, asyncHttpClient()))
@@ -88,7 +81,50 @@ class telegramBotZio(val config :BotConfig, private val started: Ref.Synchronize
   private def server: Server[Any,Throwable] =
       Server.port(8443) ++ Server.app(callback) ++ Server.ssl(sslOptions)
 
-  override def run(): ZIO[Any, Throwable, Unit] = {
+  override def run(): ZIO[Any, Throwable, Unit] =
+  {
+    server.withSsl(sslOptions).make
+      .flatMap(start => ZIO.logInfo(s"Server started on ${start.port}") *> ZIO.never)
+      .provide(ServerChannelFactory.auto, EventLoopGroup.auto(1), Scope.default) *>
+      started.updateZIO { isStarted =>
+        for {
+          _ <- ZIO.when(isStarted)(ZIO.fail(new Exception("Bot already started")))
+          response <-
+            request(SetWebhook(url = webhookUrl, certificate = certificate, allowedUpdates = allowedUpdates)).flatMap {
+              case true => ZIO.succeed(true)
+              case false =>
+                ZIO.logError("Failed to set webhook")
+                throw new RuntimeException("Failed to set webhook")
+            }
+        } yield response
+      }
+  }
+
+
+  /*{
+    server.withSsl(sslOptions).make
+      .flatMap(start => ZIO.logInfo(s"Server started on ${start.port}") *> ZIO.never)
+      .provide(ServerChannelFactory.auto, EventLoopGroup.auto(1), Scope.default) *>
+    started.updateZIO { isStarted =>
+      for {
+        _ <- ZIO.when(isStarted)(ZIO.fail(new Exception("Bot already started")))
+        response <-
+          request(SetWebhook(url = webhookUrl, certificate = certificate, allowedUpdates = allowedUpdates)).flatMap {
+            case true => ZIO.succeed(true)
+            case false =>
+              ZIO.logError("Failed to set webhook")
+              throw new RuntimeException("Failed to set webhook")
+          }
+      } yield response
+    }
+  }
+  */
+
+
+
+
+  /*
+  {
     for {
       srv <- server.withSsl(sslOptions).make
         .flatMap(start => ZIO.logInfo(s"Server started on ${start.port} ") *> ZIO.never)
@@ -112,25 +148,9 @@ class telegramBotZio(val config :BotConfig, private val started: Ref.Synchronize
       _ <- cln.join
     } yield ()
   }
-
-    /*
-    started.updateZIO { isStarted =>
-      for {
-        _ <- ZIO.when(isStarted)(ZIO.fail(new Exception("Bot already started")))
-        response <-
-          request(SetWebhook(url = webhookUrl, certificate = certificate, allowedUpdates = allowedUpdates)).flatMap {
-            case true => ZIO.succeed(true)
-            case false =>
-              ZIO.logError("Failed to set webhook")
-              throw new RuntimeException("Failed to set webhook")
-          }
-      } yield response
-    } *>
-      server.make
-        .flatMap(start => ZIO.logInfo(s"Server started on ${start.port}") *> ZIO.never)
-        .provide(ServerChannelFactory.auto, EventLoopGroup.auto(1), Scope.default)
   }
   */
+
 
   onCommand("/hello") { implicit msg =>
     onCommandLog(msg) *>
