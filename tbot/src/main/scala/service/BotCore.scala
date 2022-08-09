@@ -82,23 +82,108 @@ class telegramBotZio(val config :BotConfig, private val started: Ref.Synchronize
       Server.port(8443) ++ Server.app(callback) ++ Server.ssl(sslOptions)
 
   override def run(): ZIO[Any, Throwable, Unit] =
-  {
-    server.withSsl(sslOptions).make
-      .flatMap(start => ZIO.logInfo(s"Server started on ${start.port}") *> ZIO.never)
-      .provide(ServerChannelFactory.auto, EventLoopGroup.auto(1), Scope.default) *>
-      started.updateZIO { isStarted =>
+    for {
+      srv <- server.withSsl(sslOptions).make
+        .flatMap(start => ZIO.logInfo(s"Server started on ${start.port} ") *> ZIO.never)
+        .provide(ServerChannelFactory.auto, EventLoopGroup.auto(1), Scope.default).forkDaemon
+
+      startedBefore <- started.get
+      _ <- ZIO.logInfo(s"started = [$startedBefore] BEFORE updateZIO")
+
+      cln <- started.updateZIO { isStarted =>
         for {
+          _ <- ZIO.logInfo(s"isStarted = $isStarted")
           _ <- ZIO.when(isStarted)(ZIO.fail(new Exception("Bot already started")))
-          response <-
-            request(SetWebhook(url = webhookUrl, certificate = certificate, allowedUpdates = allowedUpdates)).flatMap {
-              case true => ZIO.succeed(true)
+          _ <- ZIO.when(!isStarted)(ZIO.logInfo(s"Bot not started yet, starting it .... webhookUrl=${webhookUrl}"))
+          response <- request(SetWebhook(url = webhookUrl, certificate = certificate, allowedUpdates = allowedUpdates)).flatMap {
+            case true =>
+              ZIO.logInfo("SetWebhook success.") *>
+                ZIO.succeed(true)
+            case false =>
+              ZIO.logError("Failed to set webhook")
+              throw new RuntimeException("Failed to set webhook")
+          }
+        } yield response
+      }.forkDaemon
+
+      startedAfter <- started.get
+      _ <- ZIO.logInfo(s"started = [$startedAfter] AFTER updateZIO")
+
+      _ <- srv.join
+      _ <- cln.join
+
+    } yield ()
+
+
+    /*
+    ?????????
+    for {
+        response <- request(SetWebhook(url = webhookUrl, certificate = certificate, allowedUpdates = allowedUpdates))
+      _ <- ZIO.logInfo(s"response = [$response]")
+    } yield ()
+    */
+
+  /*
+      for {
+        srv <- server.withSsl(sslOptions).make
+          .flatMap(start => ZIO.logInfo(s"Server started on ${start.port} ") *> ZIO.never)
+          .provide(ServerChannelFactory.auto, EventLoopGroup.auto(1), Scope.default).forkDaemon
+
+        startedBefore <- started.get
+        _ <- ZIO.logInfo(s"started = [$startedBefore] BEFORE updateZIO")
+
+        cln <- started.updateZIO { isStarted =>
+          for {
+            _ <- ZIO.logInfo(s"isStarted = $isStarted")
+            _ <- ZIO.when(isStarted)(ZIO.fail(new Exception("Bot already started")))
+            _ <- ZIO.when(!isStarted)(ZIO.logInfo(s"Bot not started yet, starting it .... webhookUrl=${webhookUrl}"))
+            response <- request(SetWebhook(url = webhookUrl, certificate = certificate, allowedUpdates = allowedUpdates)).flatMap {
+              case true =>
+                ZIO.logInfo("SetWebhook success.") *>
+                  ZIO.succeed(true)
               case false =>
                 ZIO.logError("Failed to set webhook")
                 throw new RuntimeException("Failed to set webhook")
             }
+          } yield response
+        }.forkDaemon
+
+        startedAfter <- started.get
+        _ <- ZIO.logInfo(s"started = [$startedAfter] AFTER updateZIO")
+
+        _ <- srv.join
+        _ <- cln.join
+
+      } yield ()
+    */
+
+  /*{
+    server.withSsl(sslOptions).make
+      .flatMap(start => ZIO.logInfo(s"Server started on ${start.port}") *> ZIO.never)
+      .provide(ServerChannelFactory.auto, EventLoopGroup.auto(1), Scope.default) *>
+    ZIO.logInfo("we are here")
+    */
+    /* *>
+      ZIO.logInfo(s"started = ${started.get} before updateZIO") *>
+      started.updateZIO { isStarted =>
+        for {
+          _ <- ZIO.logInfo(s"isStarted = $isStarted")
+          _ <- ZIO.when(isStarted)(ZIO.fail(new Exception("Bot already started")))
+          response <-
+            request(SetWebhook(url = webhookUrl, certificate = certificate, allowedUpdates = allowedUpdates)).flatMap {
+              case true =>
+                ZIO.logInfo("webhook successful set") *>
+                ZIO.succeed(true)
+              case false =>
+                ZIO.logError("Failed to set webhook")
+                throw new RuntimeException("Failed to set webhook")
+            }
+          _ <- ZIO.logInfo(s"response = $response")
         } yield response
-      }
+      } *>
+      ZIO.logInfo(s"started = ${started.get} after updateZIO")
   }
+  */
 
 
   /*{
