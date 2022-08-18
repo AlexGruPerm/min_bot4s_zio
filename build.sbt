@@ -26,7 +26,7 @@ val Versions = new {
   val zioTsConf      = "3.0.1"
   val zhttp          = "2.0.0-RC10"
   val zioInteropCats = "22.0.0.0"
-  val sttp           = "3.7.2"
+  val sttp           = "3.7.4"
   val bot4s          = "5.6.0"
 }
 

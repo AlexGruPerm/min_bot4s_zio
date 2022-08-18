@@ -7,21 +7,24 @@ import com.bot4s.telegram.models.{InputFile, Message, Update}
 import com.bot4s.telegram.models.UpdateType.Filters.{InlineUpdates, MessageUpdates}
 import com.bot4s.telegram.models.UpdateType.UpdateType
 import common.BotConfig
-import io.netty.handler.ssl.{SslContextBuilder}
+import io.netty.handler.ssl.SslContextBuilder
 import org.asynchttpclient.Dsl.asyncHttpClient
 import sttp.client3.asynchttpclient.zio.AsyncHttpClientZioBackend
+import sttp.client3.httpclient.zio.HttpClientZioBackend
 import zhttp.service.server.ServerSSLHandler.ServerSSLOptions
 import zhttp.http._
 import zhttp.service.Server
 import zhttp.service.server.ServerChannelFactory
 import zhttp.service.EventLoopGroup
 import zhttp.http.{Http, Method, Request, Response}
-import zio.{Ref, Scope, Task, ZIO}
+import zio.{Ref, Schedule, Scope, Task, ZIO}
 import zio.interop.catz._
+
 import java.io.{File, FileInputStream, IOException, InputStream}
+import java.net.http.HttpClient
 import java.security.KeyStore
 import javax.net.ssl.{KeyManagerFactory, TrustManagerFactory}
-
+import java.time.Duration
 
 abstract class FbBot(val conf: BotConfig)
   extends TelegramBot[Task](conf.token, AsyncHttpClientZioBackend.usingClient(zio.Runtime.default, asyncHttpClient()))
@@ -113,129 +116,6 @@ class telegramBotZio(val config :BotConfig, private val started: Ref.Synchronize
       _ <- cln.join
 
     } yield ()
-
-
-    /*
-    ?????????
-    for {
-        response <- request(SetWebhook(url = webhookUrl, certificate = certificate, allowedUpdates = allowedUpdates))
-      _ <- ZIO.logInfo(s"response = [$response]")
-    } yield ()
-    */
-
-  /*
-      for {
-        srv <- server.withSsl(sslOptions).make
-          .flatMap(start => ZIO.logInfo(s"Server started on ${start.port} ") *> ZIO.never)
-          .provide(ServerChannelFactory.auto, EventLoopGroup.auto(1), Scope.default).forkDaemon
-
-        startedBefore <- started.get
-        _ <- ZIO.logInfo(s"started = [$startedBefore] BEFORE updateZIO")
-
-        cln <- started.updateZIO { isStarted =>
-          for {
-            _ <- ZIO.logInfo(s"isStarted = $isStarted")
-            _ <- ZIO.when(isStarted)(ZIO.fail(new Exception("Bot already started")))
-            _ <- ZIO.when(!isStarted)(ZIO.logInfo(s"Bot not started yet, starting it .... webhookUrl=${webhookUrl}"))
-            response <- request(SetWebhook(url = webhookUrl, certificate = certificate, allowedUpdates = allowedUpdates)).flatMap {
-              case true =>
-                ZIO.logInfo("SetWebhook success.") *>
-                  ZIO.succeed(true)
-              case false =>
-                ZIO.logError("Failed to set webhook")
-                throw new RuntimeException("Failed to set webhook")
-            }
-          } yield response
-        }.forkDaemon
-
-        startedAfter <- started.get
-        _ <- ZIO.logInfo(s"started = [$startedAfter] AFTER updateZIO")
-
-        _ <- srv.join
-        _ <- cln.join
-
-      } yield ()
-    */
-
-  /*{
-    server.withSsl(sslOptions).make
-      .flatMap(start => ZIO.logInfo(s"Server started on ${start.port}") *> ZIO.never)
-      .provide(ServerChannelFactory.auto, EventLoopGroup.auto(1), Scope.default) *>
-    ZIO.logInfo("we are here")
-    */
-    /* *>
-      ZIO.logInfo(s"started = ${started.get} before updateZIO") *>
-      started.updateZIO { isStarted =>
-        for {
-          _ <- ZIO.logInfo(s"isStarted = $isStarted")
-          _ <- ZIO.when(isStarted)(ZIO.fail(new Exception("Bot already started")))
-          response <-
-            request(SetWebhook(url = webhookUrl, certificate = certificate, allowedUpdates = allowedUpdates)).flatMap {
-              case true =>
-                ZIO.logInfo("webhook successful set") *>
-                ZIO.succeed(true)
-              case false =>
-                ZIO.logError("Failed to set webhook")
-                throw new RuntimeException("Failed to set webhook")
-            }
-          _ <- ZIO.logInfo(s"response = $response")
-        } yield response
-      } *>
-      ZIO.logInfo(s"started = ${started.get} after updateZIO")
-  }
-  */
-
-
-  /*{
-    server.withSsl(sslOptions).make
-      .flatMap(start => ZIO.logInfo(s"Server started on ${start.port}") *> ZIO.never)
-      .provide(ServerChannelFactory.auto, EventLoopGroup.auto(1), Scope.default) *>
-    started.updateZIO { isStarted =>
-      for {
-        _ <- ZIO.when(isStarted)(ZIO.fail(new Exception("Bot already started")))
-        response <-
-          request(SetWebhook(url = webhookUrl, certificate = certificate, allowedUpdates = allowedUpdates)).flatMap {
-            case true => ZIO.succeed(true)
-            case false =>
-              ZIO.logError("Failed to set webhook")
-              throw new RuntimeException("Failed to set webhook")
-          }
-      } yield response
-    }
-  }
-  */
-
-
-
-
-  /*
-  {
-    for {
-      srv <- server.withSsl(sslOptions).make
-        .flatMap(start => ZIO.logInfo(s"Server started on ${start.port} ") *> ZIO.never)
-        .provide(ServerChannelFactory.auto, EventLoopGroup.auto(1), Scope.default).forkDaemon
-      cln <- started.updateZIO { isStarted =>
-        for {
-          _ <- ZIO.logInfo(s"certificate path is ${certPathStr}")
-          _ <- ZIO.when(isStarted)(ZIO.fail(new Exception("Bot already started")))
-          _ <- ZIO.when(!isStarted)(ZIO.logInfo(s"Bot not started yet, starting it .... webhookUrl=${webhookUrl}"))
-          response <- request(SetWebhook(url = webhookUrl, certificate = certificate, allowedUpdates = allowedUpdates)).flatMap {
-            case true =>
-              ZIO.logInfo("SetWebhook success.") *>
-                ZIO.succeed(true)
-            case false =>
-              ZIO.logError("Failed to set webhook")
-              throw new RuntimeException("Failed to set webhook")
-          }
-        } yield response
-      }.forkDaemon
-      _ <- srv.join
-      _ <- cln.join
-    } yield ()
-  }
-  }
-  */
-
 
   onCommand("/hello") { implicit msg =>
     onCommandLog(msg) *>
