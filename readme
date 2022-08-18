@@ -1,0 +1,2 @@
+ngrok http 8443
+sbt 'tbot/run tbot/src/main/resources/control.conf'
