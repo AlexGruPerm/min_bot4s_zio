@@ -56,6 +56,7 @@ object Main extends ZIOAppDefault {
 
   override def run: URIO[ZIOAppArgs, ExitCode] =
     for {
+      _ <- ZIO.logInfo("Begin run")
       args <- ZIO.service[ZIOAppArgs]
       botConfig = botConfigZLayer(args)
       res <- MainApp.provide(botConfig).exitCode
