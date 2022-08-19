@@ -11,7 +11,10 @@ abstract class FbBotZio(conf: BotConfig) {
       _ <- ZIO.logInfo("Begin start bot")
       _ <- Ref.Synchronized.make(false).flatMap { started =>
         new telegramBotZio(conf, started).run()
-      }.catchAll {
+      }.catchAllDefect {
+        case ex: Throwable => ZIO.logError(s" Exception FbBotZio.runBot ${ex.getMessage} - ${ex.getCause} ")
+      }
+      .catchAll {
         case ex: Throwable => ZIO.logError(s" Exception FbBotZio.runBot ${ex.getMessage} - ${ex.getCause} ")
       }
       _ <- ZIO.logInfo("End bot")

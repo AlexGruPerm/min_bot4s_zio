@@ -25,6 +25,8 @@ import java.net.http.HttpClient
 import java.security.KeyStore
 import javax.net.ssl.{KeyManagerFactory, TrustManagerFactory}
 import java.time.Duration
+import java.nio.file.Files
+import java.nio.file.Paths
 
 abstract class FbBot(val conf: BotConfig)
   extends TelegramBot[Task](conf.token, AsyncHttpClientZioBackend.usingClient(zio.Runtime.default, asyncHttpClient()))
@@ -36,7 +38,7 @@ class telegramBotZio(val config :BotConfig, private val started: Ref.Synchronize
   val certPathStr :String = config.pubcertpath
 
   def certificate: Option[InputFile] = Some(
-    InputFile(new File(certPathStr).toPath)
+    InputFile("certificate", Files.readAllBytes(Paths.get(certPathStr)))
   )
 
   val port :Int = config.webhook_port
@@ -88,6 +90,7 @@ class telegramBotZio(val config :BotConfig, private val started: Ref.Synchronize
     for {
       srv <- server.withSsl(sslOptions).make
         .flatMap(start => ZIO.logInfo(s"Server started on ${start.port} ") *> ZIO.never)
+        .catchAllDefect(ex => ZIO.logError(s"Server error ${ex.getMessage} - ${ex.getCause}"))
         .provide(ServerChannelFactory.auto, EventLoopGroup.auto(1), Scope.default).forkDaemon
 
       startedBefore <- started.get
@@ -105,7 +108,7 @@ class telegramBotZio(val config :BotConfig, private val started: Ref.Synchronize
             case false =>
               ZIO.logError("Failed to set webhook")
               throw new RuntimeException("Failed to set webhook")
-          }
+          }.catchAllDefect(ex => ZIO.logError(s"SetWebhook exception ${ex.getMessage} - ${ex.getCause}") *> ZIO.succeed(false))
         } yield response
       }.forkDaemon
 
