@@ -14,9 +14,9 @@ abstract class FbBotZio(conf: BotConfig) {
       }.catchAllDefect {
         case ex: Throwable => ZIO.logError(s" Exception FbBotZio.runBot ${ex.getMessage} - ${ex.getCause} ")
       }
-      .catchAll {
-        case ex: Throwable => ZIO.logError(s" Exception FbBotZio.runBot ${ex.getMessage} - ${ex.getCause} ")
-      }
+        .catchAll {
+          case ex: Throwable => ZIO.logError(s" Exception FbBotZio.runBot ${ex.getMessage} - ${ex.getCause} ")
+        }
       _ <- ZIO.logInfo("End bot")
     } yield ()
 

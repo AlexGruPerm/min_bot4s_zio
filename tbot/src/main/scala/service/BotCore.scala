@@ -37,8 +37,10 @@ class telegramBotZio(val config :BotConfig, private val started: Ref.Synchronize
 {
   val certPathStr :String = config.pubcertpath
 
+  //def certificate: Option[InputFile] = Some(InputFile(new File(certPathStr).toPath))
+
   def certificate: Option[InputFile] = Some(
-    InputFile("certificate", Files.readAllBytes(Paths.get(certPathStr)))
+      InputFile("certificate", Files.readAllBytes(Paths.get(certPathStr)))
   )
 
   val port :Int = config.webhook_port
@@ -49,7 +51,7 @@ class telegramBotZio(val config :BotConfig, private val started: Ref.Synchronize
   override def allowedUpdates: Option[Seq[UpdateType]] =
     Some(MessageUpdates ++ InlineUpdates)
 
-  /*val ks: KeyStore = KeyStore.getInstance("PKCS12")
+  val ks: KeyStore = KeyStore.getInstance("PKCS12")
   val keystore: InputStream = new FileInputStream(config.p12certpath)
 
   ks.load(keystore, password)
@@ -58,7 +60,7 @@ class telegramBotZio(val config :BotConfig, private val started: Ref.Synchronize
   keyManagerFactory.init(ks, password)
 
   val trustManagerFactory: TrustManagerFactory = TrustManagerFactory.getInstance("SunX509")
-  trustManagerFactory.init(ks)*/
+  trustManagerFactory.init(ks)
 
   import com.bot4s.telegram.marshalling._
 
@@ -77,47 +79,49 @@ class telegramBotZio(val config :BotConfig, private val started: Ref.Synchronize
       } yield Response.ok
   }
 
-  // val sslContext: io.netty.handler.ssl.SslContext = SslContextBuilder.
-  //   forServer(keyManagerFactory)
-  //   .build()
+  val sslContext: io.netty.handler.ssl.SslContext = SslContextBuilder.
+    forServer(keyManagerFactory)
+    .build()
 
-  // val sslOptions: ServerSSLOptions = ServerSSLOptions(sslContext)
+  val sslOptions: ServerSSLOptions = ServerSSLOptions(sslContext)
 
   private def server: Server[Any,Throwable] =
-      Server.port(8443) ++ Server.app(callback) /*++ Server.ssl(sslOptions)*/
+      Server.port(8443) ++ Server.app(callback) ++ Server.ssl(sslOptions)
+
+  def startBot: ZIO[Any,Throwable,Unit] = started.updateZIO { isStarted =>
+    //todo: move nested f.c. into separated function
+    for {
+      _ <- ZIO.logInfo(s"isStarted = $isStarted")
+      _ <- ZIO.when(isStarted)(ZIO.fail(new Exception("Bot already started")))
+      _ <- ZIO.when(!isStarted)(ZIO.logInfo(s"Bot not started yet, starting it .... webhookUrl=${webhookUrl}"))
+      response <- request(SetWebhook(url = webhookUrl, certificate = certificate, allowedUpdates = allowedUpdates)).flatMap {
+        case true =>
+          ZIO.logInfo("SetWebhook success.") *>
+            ZIO.succeed(true)
+        case false =>
+          ZIO.logError("Failed to set webhook")
+          throw new RuntimeException("Failed to set webhook")
+      }.catchAllDefect(ex => ZIO.logError(s"SetWebhook exception ${ex.getMessage} - ${ex.getCause}") *> ZIO.succeed(false)) //+++
+    } yield response
+  }
 
   override def run(): ZIO[Any, Throwable, Unit] =
     for {
-      srv <- server/*.withSsl(sslOptions)*/.make
+      srv <- server.withSsl(sslOptions).make
         .flatMap(start => ZIO.logInfo(s"Server started on ${start.port} ") *> ZIO.never)
-        .catchAllDefect(ex => ZIO.logError(s"Server error ${ex.getMessage} - ${ex.getCause}"))
+        .catchAllDefect(ex => ZIO.logError(s"Server error ${ex.getMessage} - ${ex.getCause}"))  //+++
         .provide(ServerChannelFactory.auto, EventLoopGroup.auto(1), Scope.default).forkDaemon
 
       startedBefore <- started.get
       _ <- ZIO.logInfo(s"started = [$startedBefore] BEFORE updateZIO")
 
-      cln <- started.updateZIO { isStarted =>
-        for {
-          _ <- ZIO.logInfo(s"isStarted = $isStarted")
-          _ <- ZIO.when(isStarted)(ZIO.fail(new Exception("Bot already started")))
-          _ <- ZIO.when(!isStarted)(ZIO.logInfo(s"Bot not started yet, starting it .... webhookUrl=${webhookUrl}"))
-          response <- request(SetWebhook(url = webhookUrl, certificate = None, allowedUpdates = allowedUpdates)).flatMap {
-            case true =>
-              ZIO.logInfo("SetWebhook success.") *>
-                ZIO.succeed(true)
-            case false =>
-              ZIO.logError("Failed to set webhook")
-              throw new RuntimeException("Failed to set webhook")
-          }.catchAllDefect(ex => ZIO.logError(s"SetWebhook exception ${ex.getMessage} - ${ex.getCause}") *> ZIO.succeed(false))
-        } yield response
-      }.forkDaemon
+      cln <- startBot.forkDaemon
 
       startedAfter <- started.get
       _ <- ZIO.logInfo(s"started = [$startedAfter] AFTER updateZIO")
 
       _ <- srv.join
       _ <- cln.join
-
     } yield ()
 
   onCommand("/hello") { implicit msg =>
